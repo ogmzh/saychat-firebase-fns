@@ -142,6 +142,8 @@ exports.notifySubscribers = functions
         data: {
           notification_type: data.notification_type,
           click_action: "FLUTTER_NOTIFICATION_CLICK",
+          user: data.user,
+          channel: data.channel,
         },
       });
       functions.logger.info(
@@ -158,3 +160,54 @@ exports.notifySubscribers = functions
       return false;
     }
   });
+
+exports.muteChecker = functions.pubsub
+  .schedule("every minute")
+  .onRun(async (context) => {
+    functions.logger.info("Mute checker invoked");
+    try {
+      const mutesRef = admin.firestore().collection(`mutes`);
+      const mutes = await mutesRef.get();
+      mutes.forEach(async (mute) => {
+        const muteData = mute.data();
+        const now = new Date();
+        functions.logger.info(
+          `channelId: ${muteData.channel}, userId: ${
+            muteData.user
+          }, expiresAt:${muteData.expiresAt}, now is ${now} is expired ? ${
+            new Date(muteData.expiresAt) < now
+          }`
+        );
+
+        if (new Date(muteData.expiresAt) < now) {
+          functions.logger.info("Mute expired, removing entries.");
+          const channelEntryDeleteResponse = await admin
+            .firestore()
+            .doc(`channels/${muteData.channel}/mutes/${muteData.user}`)
+            .delete();
+          functions.logger.info("channel delete", channelEntryDeleteResponse);
+          const userEntryDeleteResponse = await admin
+            .firestore()
+            .doc(`users/${muteData.user}/mutes/${muteData.channel}`)
+            .delete();
+          functions.logger.info("user delete", userEntryDeleteResponse);
+          const muteEntryDeleteResponse = await admin
+            .firestore()
+            .doc(`mutes/${mute.id}`)
+            .delete();
+          functions.logger.info("mute delete", muteEntryDeleteResponse);
+        }
+      });
+
+      return true;
+    } catch (ex) {
+      functions.logger.error("Fn failed with:", ex);
+      return false;
+    }
+  });
+
+// read mutes
+// get userId, channelId
+// check mute timestamp if it is in the past
+//delete from /channels/{channelId}/mutes/{userId}
+// delete from /users/{userId}/mutes/{channelId}
