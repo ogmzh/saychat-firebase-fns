@@ -7,7 +7,8 @@ const os = require("os");
 const fs = require("fs");
 const sizeOf = require("image-size");
 
-const key = require("./service-account-key.json");
+const googleServiceAccountKey = require("./service-account-key.json");
+const { key: appleKey } = require("./apple-secret.json");
 const { google } = require("googleapis");
 const request = require("request-promise");
 
@@ -211,8 +212,8 @@ exports.muteChecker = functions.pubsub
   });
 
 const authClient = new google.auth.JWT({
-  email: key.client_email,
-  key: key.private_key,
+  email: googleServiceAccountKey.client_email,
+  key: googleServiceAccountKey.private_key,
   scopes: ["https://www.googleapis.com/auth/androidpublisher"],
 });
 
@@ -276,7 +277,7 @@ exports.verifyAppleSubscription = functions.https.onCall(async (data) => {
   const purchaseToken = data.purchase_token;
   const userId = data.user_id;
 
-  const secret = ""; // TODO: do not commit
+  const secret = appleKey;
   const options = { method: 'POST', url: 'https://buy.itunes.apple.com/verifyReceipt', body: ({
     "receipt-data" : purchaseToken,
     "password" : secret,
