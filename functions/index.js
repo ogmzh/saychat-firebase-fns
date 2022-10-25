@@ -266,7 +266,7 @@ exports.verifyGoogleSubscription = functions.https.onCall(async (data, context) 
 
   // This message is returned when there is no successful response from the subscription/purchase get call
   return {
-    status: 500,
+    status: 401,
     message: "Failed to verify subscription, Try again!",
   };
 });
@@ -314,7 +314,7 @@ exports.verifyAppleSubscription = functions.https.onCall(async (data) => {
     const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, subscriptionPackage: "FREE" })
     functions.logger.info("Update response", updateResponse);
     return {
-      status: 500,
+      status: 401,
       message: "Failed to verify subscription, Try again!",
     };
   }
