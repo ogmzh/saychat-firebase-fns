@@ -222,14 +222,13 @@ const playDeveloperApiClient = google.androidpublisher({
   auth: authClient,
 });
 
-
-
 exports.verifyGoogleSubscription = functions.https.onCall(async (data, context) => {
   functions.logger.info("Verify Google Play subscription called with data:", data);
   const skuId = data.sku_id;
   const purchaseToken = data.purchase_token;
   const packageName = data.package_name;
   const userId = data.user_id;
+  const source = data.source;
 
   try {
     await authClient.authorize();
@@ -246,7 +245,7 @@ exports.verifyGoogleSubscription = functions.https.onCall(async (data, context) 
     if (subscription.status === 200) {      
       functions.logger.info("Sub valid", subscription.data);
       functions.logger.info("Updating user to PREMIUM package with userid: ", userId);
-      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, subscriptionPackage: "PREMIUM" })
+      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" })
       functions.logger.info("Update response", updateResponse);
       // Subscription response is successful. subscription.data will return the subscription information.
       return {
@@ -260,7 +259,7 @@ exports.verifyGoogleSubscription = functions.https.onCall(async (data, context) 
   }
 
   functions.logger.info("Updating user to FREE package with id: ", userId);
-  const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, subscriptionPackage: "FREE" })
+  const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "FREE" })
   functions.logger.info("Update response", updateResponse);
 
 
@@ -276,6 +275,7 @@ exports.verifyAppleSubscription = functions.https.onCall(async (data) => {
   const skuId = data.sku_id;
   const purchaseToken = data.purchase_token;
   const userId = data.user_id;
+  const source = data.source;
 
   const secret = appleKey;
   const options = { method: 'POST', url: 'https://buy.itunes.apple.com/verifyReceipt', body: ({
@@ -303,7 +303,7 @@ exports.verifyAppleSubscription = functions.https.onCall(async (data) => {
   // }
   if(productionResponse.status === 21002) {
     functions.logger.info("Subscription valid, updating user to PREMIUM package with userid: ", userId);
-    const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, subscriptionPackage: "PREMIUM" })
+    const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" })
     functions.logger.info("Update response", updateResponse);
     return {
       status: 200,
@@ -311,7 +311,7 @@ exports.verifyAppleSubscription = functions.https.onCall(async (data) => {
     };
   } else {
     functions.logger.info("Subscription invalid, updating user to FREE package with userId:", userId);
-    const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, subscriptionPackage: "FREE" })
+    const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "FREE" })
     functions.logger.info("Update response", updateResponse);
     return {
       status: 401,
