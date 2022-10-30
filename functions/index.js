@@ -245,7 +245,7 @@ exports.verifyGoogleSubscription = functions.https.onCall(async (data, context) 
     if (subscription.status === 200) {      
       functions.logger.info("Sub valid", subscription.data);
       functions.logger.info("Updating user to PREMIUM package with userid: ", userId);
-      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" })
+      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" });
       functions.logger.info("Update response", updateResponse);
       // Subscription response is successful. subscription.data will return the subscription information.
       return {
@@ -259,7 +259,7 @@ exports.verifyGoogleSubscription = functions.https.onCall(async (data, context) 
   }
 
   functions.logger.info("Updating user to FREE package with id: ", userId);
-  const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "FREE" })
+  const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "FREE" });
   functions.logger.info("Update response", updateResponse);
 
 
@@ -287,23 +287,38 @@ exports.verifyAppleSubscription = functions.https.onCall(async (data) => {
   functions.logger.info("Calling itunes production");
   const productionResponse = await request(options);
   functions.logger.info("Production response:", productionResponse);
-  // if (productionResponse.status === 21007) {
-  //   const sandBoxOptions = { method: 'POST', url: 'https://sandbox.itunes.apple.com/verifyReceipt', body: ({
-  //     "receipt-data" : data.receipt,
-  //     "password" : secret,
-  //     'exclude-old-transactions': true
-  //   }),json: true};
+  if (productionResponse.status === 21007) {
+    const sandBoxOptions = { method: 'POST', url: 'https://sandbox.itunes.apple.com/verifyReceipt', body: ({
+      "receipt-data" : data.receipt,
+      "password" : secret,
+      'exclude-old-transactions': true
+    }),json: true};
     
-  //   functions.logger.info("Redirected to sandbox, calling...")
-  //   const sandboxResponse = await request(sandBoxOptions);
-  //   functions.logger.info("Sandbox response:", sandboxResponse);
+    functions.logger.info("Redirected to sandbox, calling...")
+    const sandboxResponse = await request(sandBoxOptions);
+    functions.logger.info("Sandbox response:", sandboxResponse);
 
-  //   // return our response to the client if sandbox
-  //   return sandboxResponse;
-  // }
+    if(sandboxResponse.status === 21002) {
+      functions.logger.info("Subscription valid, updating user to PREMIUM on SANDBOX package with userid: ", userId);
+      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" });
+      functions.logger.info("Update response", updateResponse);
+      return {
+        status: 200,
+        message: "Sandbox subscription verification successful!",
+      };
+    } else {
+      functions.logger.info("Subscription invalid, updating user to FREE on SANDBOX package with userId:", userId);
+      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "FREE" });
+      functions.logger.info("Update response", updateResponse);
+      return {
+        status: 401,
+        message: "Failed to verify subscription, Try again!",
+      };
+    }
+  }
   if(productionResponse.status === 21002) {
     functions.logger.info("Subscription valid, updating user to PREMIUM package with userid: ", userId);
-    const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" })
+    const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" });
     functions.logger.info("Update response", updateResponse);
     return {
       status: 200,
@@ -311,7 +326,7 @@ exports.verifyAppleSubscription = functions.https.onCall(async (data) => {
     };
   } else {
     functions.logger.info("Subscription invalid, updating user to FREE package with userId:", userId);
-    const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "FREE" })
+    const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "FREE" });
     functions.logger.info("Update response", updateResponse);
     return {
       status: 401,
