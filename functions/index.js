@@ -244,14 +244,29 @@ exports.verifyGoogleSubscription = functions.https.onCall(async (data, context) 
 
     if (subscription.status === 200) {      
       functions.logger.info("Sub valid", subscription.data);
-      functions.logger.info("Updating user to PREMIUM package with userid: ", userId);
-      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" });
-      functions.logger.info("Update response", updateResponse);
-      // Subscription response is successful. subscription.data will return the subscription information.
-      return {
-        status: 200,
-        message: "Subscription verification successful!",
-      };
+      if (subscription.data.userCancellationTimeMillis && subscription.data.userCancellationTimeMillis < Date.now()) {
+        functions.logger.info("User Cancellation Time expired, updating to FREE", subscription.data.userCancellationTimeMillis);
+        await admin.firestore().doc(`users/${userId}`).update({ skuId: null, purchaseToken: null, source, subscriptionPackage: "FREE" });
+        return {
+          status: 401,
+          message: "Failed to verify subscription, Try again!",
+        };
+      } else if (subscription.data.expiryTimeMillis && subscription.data.expiryTimeMillis < Date.now()) {
+        functions.logger.info("Expiry Time expired, updating to FREE", subscription.data.userCancellationTimeMillis);
+        await admin.firestore().doc(`users/${userId}`).update({ skuId: null, purchaseToken: null, source, subscriptionPackage: "FREE" });
+        return {
+          status: 401,
+          message: "Failed to verify subscription, Try again!",
+        };
+      } else {
+        functions.logger.info("Updating user to PREMIUM package with userid: ", userId);
+        await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" });
+        return {
+          status: 200,
+          message: "Subscription verification successful!",
+        };
+      }
+    
     }
   } catch (error) {
     // Logging error for debugging
@@ -259,7 +274,7 @@ exports.verifyGoogleSubscription = functions.https.onCall(async (data, context) 
   }
 
   functions.logger.info("Updating user to FREE package with id: ", userId);
-  const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "FREE" });
+  const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId: null, purchaseToken: null, source, subscriptionPackage: "FREE" });
   functions.logger.info("Update response", updateResponse);
 
 
@@ -288,49 +303,96 @@ exports.verifyAppleSubscription = functions.https.onCall(async (data) => {
   const productionResponse = await request(options);
   functions.logger.info("Production response:", productionResponse);
   if (productionResponse.status === 21007) {
-    const sandBoxOptions = { method: 'POST', url: 'https://sandbox.itunes.apple.com/verifyReceipt', body: ({
-      "receipt-data" : data.receipt,
-      "password" : secret,
-      'exclude-old-transactions': true
-    }),json: true};
+    const sandBoxOptions = { method: 'POST', url: 'https://sandbox.itunes.apple.com/verifyReceipt', 	
+      headers: {'Content-Type': 'application/json'},
+      body: ({
+        "receipt-data" : purchaseToken,
+        "password" : secret,
+        "exclude-old-transactions": true
+      }),json: true};
     
-    functions.logger.info("Redirected to sandbox, calling...")
+    functions.logger.info("Redirected to sandbox, calling...");
     const sandboxResponse = await request(sandBoxOptions);
-    functions.logger.info("Sandbox response:", sandboxResponse);
+    functions.logger.info("Sandbox response latest receipt info:", sandboxResponse);
 
-    if(sandboxResponse.status === 21002) {
-      functions.logger.info("Subscription valid, updating user to PREMIUM on SANDBOX package with userid: ", userId);
-      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" });
-      functions.logger.info("Update response", updateResponse);
-      return {
-        status: 200,
-        message: "Sandbox subscription verification successful!",
-      };
+    if(sandboxResponse.status === 0) {
+      const expiresMsString = sandboxResponse.latest_receipt_info?.[0]?.expires_date_ms;
+      functions.logger.info("Subscription status === valid, let's check expiry", expiresMsString);
+      if(expiresMsString && !isNaN(Number(expiresMsString))) {
+        const expiresMs = Number(expiresMsString);
+        if(expiresMs > Date.now()) {
+          functions.logger.info("Subscription PREMIUM, expiry date:", new Date(expiresMs));
+          const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" });
+          functions.logger.info("Update response", updateResponse);
+          return {
+            status: 200,
+            message: "Sandbox subscription verification successful!",
+          };
+        } else {
+          functions.logger.info("Subscription FREE, expiry date:", new Date(expiresMs));
+          const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId: null, purchaseToken: null, source, subscriptionPackage: "FREE" });
+          functions.logger.info("Update response", updateResponse);
+          return {
+            status: 401,
+            message: "Failed to verify subscription, expired!",
+          };
+        }
+      } else {
+        functions.logger.error("Something is wrong with expires_date_ms:", expiresMsString);
+        return {
+          status: 401,
+          message: "Failed to verify subscription, expired!",
+        };
+      } 
     } else {
-      functions.logger.info("Subscription invalid, updating user to FREE on SANDBOX package with userId:", userId);
-      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "FREE" });
+      functions.logger.info("Subscription invalid (possibly malformed), updating user to FREE on SANDBOX package with userId:", userId);
+      functions.logger.error("Sub status", sandboxResponse.status); 
+      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId: null, purchaseToken: null, source, subscriptionPackage: "FREE" });
       functions.logger.info("Update response", updateResponse);
       return {
         status: 401,
         message: "Failed to verify subscription, Try again!",
       };
     }
-  }
-  if(productionResponse.status === 21002) {
-    functions.logger.info("Subscription valid, updating user to PREMIUM package with userid: ", userId);
-    const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" });
-    functions.logger.info("Update response", updateResponse);
-    return {
-      status: 200,
-      message: "Subscription verification successful!",
-    };
   } else {
-    functions.logger.info("Subscription invalid, updating user to FREE package with userId:", userId);
-    const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "FREE" });
-    functions.logger.info("Update response", updateResponse);
-    return {
-      status: 401,
-      message: "Failed to verify subscription, Try again!",
-    };
+    if (productionResponse.status === 0) {
+      const expiresMsString = productionResponse.latest_receipt_info?.[0]?.expires_date_ms;
+        functions.logger.info("Subscription status === valid, let's check expiry", expiresMsString);
+        if(expiresMsString && !isNaN(Number(expiresMsString))) {
+          const expiresMs = Number(expiresMsString);
+          if(expiresMs > Date.now()) {
+            functions.logger.info("Subscription PREMIUM, expiry date:", new Date(expiresMs));
+            const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId, purchaseToken, source, subscriptionPackage: "PREMIUM" });
+            functions.logger.info("Update response", updateResponse);
+            return {
+              status: 200,
+              message: "Production subscription verification successful!",
+            };
+          } else {
+            functions.logger.info("Subscription FREE, expiry date:", new Date(expiresMs));
+            const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId: null, purchaseToken: null, source, subscriptionPackage: "FREE" });
+            functions.logger.info("Update response", updateResponse);
+            return {
+              status: 401,
+              message: "Failed to verify subscription, expired!",
+            };
+          }
+        } else {
+          functions.logger.error("Something is wrong with expires_date_ms:", expiresMsString);
+          return {
+            status: 401,
+            message: "Failed to verify subscription, expired!",
+          };
+        } 
+    } else {
+      functions.logger.info("Subscription invalid (possibly malformed), updating user to FREE on PRODUCTION package with userId:", userId);
+      functions.logger.error("Sub status", productionResponse.status); 
+      const updateResponse = await admin.firestore().doc(`users/${userId}`).update({ skuId: null, purchaseToken: null, source, subscriptionPackage: "FREE" });
+      functions.logger.info("Update response", updateResponse);
+      return {
+        status: 401,
+        message: "Failed to verify subscription, Try again!",
+      };
+    }
   }
 })
