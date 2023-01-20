@@ -108,9 +108,11 @@ exports.imgDownscale = functions
     });
     functions.logger.info("New file uploaded to storage:", bucketFilePath);
 
+    const newDate = new Date();
+    newDate.setFullYear(date.getFullYear() + 24);
     const signedImageUrlArr = await response[0].getSignedUrl({
       action: "read",
-      expires: "01-01-2222",
+      expires: newDate,
     });
     const signedImageUrl = signedImageUrlArr[0];
     functions.logger.info("Generated signed url:", signedImageUrl);
@@ -143,6 +145,7 @@ exports.notifySubscribers = functions
         notification: {
           title: data.messageTitle,
           body: data.messageBody,
+          sound: "default"
         },
         data: {
           notification_type: data.notification_type,
